@@ -1,0 +1,26 @@
+from PIL import Image, ImageDraw, ImageFont
+from io import BytesIO
+
+def edit_image(image_path, text="Hello"):
+    img = Image.open(image_path)
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.truetype("arial.ttf", size=50)
+    w, h = draw.textsize(text, font=font)
+    x = (img.width - w) // 2
+    y = (img.height - h) // 2
+    draw.text((x, y), text, fill="white", font=font)
+    
+    return img
+
+def process_and_send_post(msg_data):
+    # Загружаем картинку и обрабатываем её
+    image_bytes = BytesIO(msg_data.media.document.bytes)
+    edited_img = edit_image(image_bytes)
+    
+    # Преобразовываем обратно в байтовый поток
+    output_buffer = BytesIO()
+    edited_img.save(output_buffer, format='JPEG')
+    output_buffer.seek(0)
+    
+    # Отправляем обновленное сообщение с картинкой
+    bot.send_photo(chat_id="@target_channel", photo=output_buffer, caption=msg_data.caption)
