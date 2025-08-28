@@ -1,3 +1,26 @@
+import pandas as pd
+from sklearn.model_selection import train_test_split
+
+# Пример данных
+data = pd.read_csv('user_interactions.csv')
+train_df, val_df = train_test_split(data, test_size=0.2)
+
+# Подготовим наборы данных для обучения
+user_ids = data['user_id'].unique()
+post_ids = data['post_id'].unique()
+num_users = len(user_ids)
+num_posts = len(post_ids)
+
+# Нормализуем индексы
+user_id_map = {uid: idx for idx, uid in enumerate(user_ids)}
+post_id_map = {pid: idx for idx, pid in enumerate(post_ids)}
+
+train_df['user_idx'] = train_df['user_id'].apply(lambda x: user_id_map[x])
+val_df['user_idx'] = val_df['user_id'].apply(lambda x: user_id_map[x])
+train_df['post_idx'] = train_df['post_id'].apply(lambda x: post_id_map[x])
+val_df['post_idx'] = val_df['post_id'].apply(lambda x: post_id_map[x])
+
+
 from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
 
@@ -24,3 +47,47 @@ def process_and_send_post(msg_data):
     
     # Отправляем обновленное сообщение с картинкой
     bot.send_photo(chat_id="@target_channel", photo=output_buffer, caption=msg_data.caption)
+
+import tensorflow as tf
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Embedding, Dense, Dot, Concatenate, Dropout, Activation
+
+class NeuralCF(Model):
+    def __init__(self, num_users, num_items, latent_dim=16):
+        super(NeuralCF, self).__init__()
+        self.user_embeddings = Embedding(num_users, latent_dim, input_length=1)
+        self.item_embeddings = Embedding(num_items, latent_dim, input_length=1)
+        self.dot_product = Dot(axes=1)
+        self.concat_layer = Concatenate(axis=-1)
+        self.fc_layers = [Dense(units=latent_dim * 2, activation='relu'),
+                          Dense(units=latent_dim, activation='relu')]
+        self.output_layer = Dense(1, activation='sigmoid')
+
+    def call(self, inputs):
+        user_input, item_input = inputs
+        user_emb = self.user_embeddings(user_input)
+        item_emb = self.item_embeddings(item_input)
+        emb_vector = self.concat_layer([user_emb, item_emb])
+        fc_output = emb_vector
+        for layer in self.fc_layers:
+            fc_output = layer(fc_output)
+        prediction = self.output_layer(fc_output)
+        return prediction
+
+model = NeuralCF(num_users=num_users, num_posts=num_posts)
+model.compile(optimizer=tf.optimizers.Adam(), loss='binary_crossentropy', metrics=['accuracy'])
+history = model.fit(train_df[['user_idx', 'post_idx']], train_df['rating'], epochs=10, batch_size=64, validation_data=(val_df[['user_idx', 'post_idx']], val_df['rating']))
+
+
+def recommend_post(user_id, candidate_posts):
+    user_idx = user_id_map[user_id]
+    predictions = []
+    for post_id in candidate_posts:
+        post_idx = post_id_map[post_id]
+        pred = model.predict([[user_idx], [post_idx]])
+        predictions.append(pred)
+    sorted_posts = [(candidate_posts[i], predictions[i]) for i in range(len(candidate_posts))]
+    sorted_posts.sort(key=lambda x: x[1], reverse=True)
+    return sorted_posts[:5]  # Возвращаем топ-5 рекомендуемых постов
+
+
